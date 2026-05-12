@@ -12,7 +12,11 @@ const app = next({ dev })
 const handle = app.getRequestHandler()
 
 app.prepare().then(() => {
-  const httpServer = createServer((req, res) => handle(req, res))
+  // Socket.io 폴링 요청이 Next.js 핸들러로 넘어가지 않도록 분기
+  const httpServer = createServer((req, res) => {
+    if (req.url?.startsWith('/socket.io')) return
+    handle(req, res)
+  })
 
   const io = new Server(httpServer, {
     cors: { origin: '*' },
@@ -20,26 +24,26 @@ app.prepare().then(() => {
 
   setIO(io)
 
+  // Socket.io 룸 멤버십을 기준으로 각 플레이어에게 격리된 게임 상태 전송
   function broadcastGameState(roomId: string) {
     const game = store.getGame(roomId)
     if (!game) return
 
-    const room = store.getRoomWithPlayers(roomId)
-    if (!room) return
+    const roomSockets = io.sockets.adapter.rooms.get(roomId)
+    if (!roomSockets) return
 
-    for (const player of room.players) {
-      const socket = [...io.sockets.sockets.values()].find(
-        (s) => s.handshake.auth.userId === player.id,
-      )
-      if (socket) {
-        socket.emit('game_state', sanitizeForPlayer(game, player.id))
-      }
+    for (const socketId of roomSockets) {
+      const socket = io.sockets.sockets.get(socketId)
+      if (!socket) continue
+      const userId = socket.handshake.auth.userId as string
+      socket.emit('game_state', sanitizeForPlayer(game, userId))
     }
   }
 
   function broadcastRoomState(roomId: string) {
     const room = store.getRoomWithPlayers(roomId)
     if (room) io.to(roomId).emit('room_updated', room)
+    else io.to(roomId).emit('room_closed')
   }
 
   io.on('connection', (socket) => {
@@ -50,6 +54,8 @@ app.prepare().then(() => {
 
     socket.on('join_room', (roomId: string) => {
       socket.join(roomId)
+      socket.data.roomId = roomId  // disconnect 시 참조용
+
       const game = store.getGame(roomId)
       if (game) socket.emit('game_state', sanitizeForPlayer(game, userId))
       broadcastRoomState(roomId)
@@ -58,15 +64,16 @@ app.prepare().then(() => {
     socket.on('leave_room', (roomId: string) => {
       store.leaveRoom(userId)
       socket.leave(roomId)
+      delete socket.data.roomId
       broadcastRoomState(roomId)
     })
 
-    // ── Game events ──────────────────────────────────────
+    // ── Game events ─────────────────────────────────────
 
     socket.on('start_game', (roomId: string) => {
       const result = store.startGame(roomId)
       if ('error' in result) {
-        socket.emit('error', result.error)
+        socket.emit('game_error', result.error)
         return
       }
       broadcastGameState(roomId)
@@ -78,7 +85,7 @@ app.prepare().then(() => {
       (data: { roomId: string; action: 'fold' | 'check' | 'call' | 'raise'; amount?: number }) => {
         const result = store.applyPlayerAction(data.roomId, userId, data.action, data.amount)
         if ('error' in result) {
-          socket.emit('error', result.error)
+          socket.emit('game_error', result.error)
           return
         }
         broadcastGameState(data.roomId)
@@ -88,7 +95,7 @@ app.prepare().then(() => {
     socket.on('next_hand', (roomId: string) => {
       const result = store.startNextHand(roomId)
       if ('error' in result) {
-        socket.emit('error', result.error)
+        socket.emit('game_error', result.error)
         return
       }
       broadcastGameState(roomId)
@@ -96,10 +103,9 @@ app.prepare().then(() => {
 
     socket.on('disconnect', () => {
       store.setConnected(userId, false)
-      const player = store.getPlayer(userId)
-      if (player?.roomId) {
-        io.to(player.roomId).emit('player_disconnected', { userId, nickname: player.nickname })
-        broadcastRoomState(player.roomId)
+      const roomId: string | undefined = socket.data.roomId
+      if (roomId) {
+        broadcastRoomState(roomId)
       }
     })
   })

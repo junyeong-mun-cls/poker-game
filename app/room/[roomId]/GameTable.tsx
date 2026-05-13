@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { ClientGameState, ClientSeatState } from '@/lib/game/engine'
+import type { ClientGameState, ClientSeatState, ActionEntry } from '@/lib/game/engine'
 import type { Card } from '@/lib/game/deck'
 import { SUIT_SYMBOL } from '@/lib/game/deck'
 
@@ -12,6 +12,34 @@ interface Props {
   error: string | null
   playerCount: number
   onEmit: (event: string, data?: unknown) => void
+}
+
+// 액션 → 한국어 레이블 + 색상
+function actionDisplay(entry: ActionEntry): { label: string; color: string } {
+  switch (entry.action) {
+    case 'fold':   return { label: '다이', color: 'text-red-400 bg-red-900/40' }
+    case 'check':  return { label: '삥', color: 'text-gray-300 bg-gray-700/60' }
+    case 'call':   return { label: `콜 ${entry.amount?.toLocaleString()}`, color: 'text-blue-300 bg-blue-900/40' }
+    case 'raise':  return { label: `레이즈 ${entry.amount?.toLocaleString()}`, color: 'text-yellow-300 bg-yellow-900/40' }
+    case 'all-in': return { label: `올인 ${entry.amount?.toLocaleString()}`, color: 'text-orange-300 bg-orange-900/40' }
+    case 'sb':     return { label: `SB ${entry.amount?.toLocaleString()}`, color: 'text-green-500 bg-green-900/30' }
+    case 'bb':     return { label: `BB ${entry.amount?.toLocaleString()}`, color: 'text-green-400 bg-green-900/30' }
+    default:       return { label: entry.action, color: 'text-gray-400 bg-gray-800' }
+  }
+}
+
+// 각 시트의 마지막 액션 (블라인드 제외)
+function getLastPlayerActions(log: ActionEntry[]): Map<number, ActionEntry> {
+  const map = new Map<number, ActionEntry>()
+  for (const entry of log) {
+    map.set(entry.seatIndex, entry)
+  }
+  return map
+}
+
+// 시트 라벨 (로그에서 나 vs 상대 구분용)
+function seatLabel(seatIndex: number, myIndex: number): string {
+  return seatIndex === myIndex ? '나' : `P${seatIndex + 1}`
 }
 
 export default function GameTable({ roomId, myId, game, error, playerCount, onEmit }: Props) {
@@ -27,7 +55,6 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
   const canCheck = game && mySeat ? mySeat.betThisRound >= game.currentBet : false
   const canRaise = game ? myTotalChips > game.currentBet : false
 
-  // 레이즈 금액 프리셋 계산 (총 베팅액 기준)
   const quarterTotal = game
     ? Math.min(myTotalChips, Math.max(minRaiseTotal, game.currentBet + Math.ceil(game.pot * 0.25)))
     : 0
@@ -38,6 +65,13 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
     ? Math.min(myTotalChips, Math.max(minRaiseTotal, game.currentBet + game.pot))
     : 0
   const allInTotal = myTotalChips
+
+  const lastActionBySeat = game ? getLastPlayerActions(game.log) : new Map<number, ActionEntry>()
+
+  // 최근 액션 히스토리 (블라인드 포스트 제외, 최신 순 최대 8개)
+  const recentActions = game
+    ? [...game.log].filter((e) => e.action !== 'sb' && e.action !== 'bb').reverse().slice(0, 8)
+    : []
 
   function emitRaise(totalBet: number) {
     onEmit('player_action', { roomId, action: 'raise', amount: totalBet })
@@ -88,7 +122,7 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
             )}
           </div>
 
-          {/* 좌석 */}
+          {/* 좌석 — 마지막 액션 배지 포함 */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {game.seats.map((seat, i) => (
               <SeatDisplay
@@ -98,9 +132,37 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
                 isDealer={i === game.dealerIndex}
                 isCurrent={game.pendingSeats[0] === i}
                 isMe={seat.playerId === myId}
+                lastAction={lastActionBySeat.get(i)}
               />
             ))}
           </div>
+
+          {/* 최근 액션 히스토리 */}
+          {recentActions.length > 0 && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+              <p className="text-gray-600 text-xs mb-2">최근 액션</p>
+              <div className="flex flex-col gap-1">
+                {recentActions.map((entry, idx) => {
+                  const { label, color } = actionDisplay(entry)
+                  const name = seatLabel(entry.seatIndex, mySeatIndex)
+                  const isFirst = idx === 0
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-center gap-2 text-sm ${isFirst ? 'opacity-100' : 'opacity-50'}`}
+                    >
+                      <span className={`text-xs font-semibold w-6 shrink-0 ${entry.seatIndex === mySeatIndex ? 'text-green-400' : 'text-gray-400'}`}>
+                        {name}
+                      </span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${color}`}>
+                        {label}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* 내 홀카드 */}
           {mySeat?.holeCards && Array.isArray(mySeat.holeCards) && (
@@ -119,9 +181,7 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-3">
               <p className="text-gray-400 text-sm text-center">내 차례입니다</p>
 
-              {/* 주요 액션 버튼 */}
               <div className="grid grid-cols-3 gap-2">
-                {/* 다이 (fold) */}
                 <button
                   onClick={() => onEmit('player_action', { roomId, action: 'fold' })}
                   className="bg-red-900 hover:bg-red-800 text-red-200 font-semibold rounded-lg py-3 transition-colors text-sm"
@@ -129,7 +189,6 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
                   다이
                 </button>
 
-                {/* 삥 (check) or 콜 */}
                 {canCheck ? (
                   <button
                     onClick={() => onEmit('player_action', { roomId, action: 'check' })}
@@ -147,7 +206,6 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
                   </button>
                 )}
 
-                {/* 올인 */}
                 <button
                   onClick={() => emitRaise(allInTotal)}
                   disabled={!canRaise}
@@ -158,7 +216,6 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
                 </button>
               </div>
 
-              {/* 레이즈 프리셋 */}
               {canRaise && (
                 <div className="grid grid-cols-3 gap-2">
                   <button
@@ -185,7 +242,6 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
                 </div>
               )}
 
-              {/* 직접 입력 레이즈 */}
               {canRaise && (
                 <div className="flex gap-2 items-center">
                   <input
@@ -251,24 +307,29 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
 }
 
 function SeatDisplay({
-  seat, seatIndex, isDealer, isCurrent, isMe,
+  seat, seatIndex, isDealer, isCurrent, isMe, lastAction,
 }: {
   seat: ClientSeatState
   seatIndex: number
   isDealer: boolean
   isCurrent: boolean
   isMe: boolean
+  lastAction?: ActionEntry
 }) {
-  const borderColor =
-    seat.status === 'folded'
-      ? 'border-gray-800 opacity-50'
-      : seat.status === 'all-in'
-        ? 'border-yellow-700'
-        : 'border-gray-700'
+  const isFolded = seat.status === 'folded'
+  const isAllIn = seat.status === 'all-in'
+
+  const borderColor = isFolded
+    ? 'border-gray-800'
+    : isAllIn
+      ? 'border-yellow-700'
+      : 'border-gray-700'
+
+  const lastDisplay = lastAction ? actionDisplay(lastAction) : null
 
   return (
     <div
-      className={`bg-gray-900 border rounded-xl p-3 ${borderColor} ${isCurrent ? 'ring-2 ring-green-500' : ''}`}
+      className={`bg-gray-900 border rounded-xl p-3 ${borderColor} ${isCurrent ? 'ring-2 ring-green-500' : ''} ${isFolded ? 'opacity-40' : ''}`}
     >
       <div className="flex items-center justify-between mb-1">
         <span className={`font-semibold text-sm ${isMe ? 'text-green-400' : 'text-white'}`}>
@@ -277,9 +338,12 @@ function SeatDisplay({
             <span className="ml-1 text-xs bg-yellow-600 text-white rounded px-1">D</span>
           )}
         </span>
-        <span className="text-gray-500 text-xs">
-          {seat.status === 'folded' ? '폴드' : seat.status === 'all-in' ? '올인' : ''}
-        </span>
+        {/* 마지막 액션 배지 */}
+        {lastDisplay && (
+          <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full leading-none ${lastDisplay.color}`}>
+            {lastDisplay.label}
+          </span>
+        )}
       </div>
       <div className="text-gray-300 text-sm">{seat.chips.toLocaleString()} 칩</div>
       {seat.betThisRound > 0 && (

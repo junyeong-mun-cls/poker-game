@@ -17,16 +17,18 @@ export default function JoinByCodeForm({ action }: Props) {
         type="text"
         inputMode="numeric"
         pattern="\d{6}"
-        placeholder="6자리 방 번호"
+        placeholder="000000"
         maxLength={6}
         required
-        className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white text-center text-xl tracking-widest placeholder-gray-600 focus:outline-none focus:border-green-500 transition-colors"
+        className="bg-gray-800 border border-gray-700 rounded-xl px-4 py-3.5 text-white text-center text-2xl font-mono tracking-[0.6em] placeholder-gray-700 focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all"
       />
-      {state?.error && <p className="text-red-400 text-xs text-center">{state.error}</p>}
+      {state?.error && (
+        <p className="text-red-400 text-xs text-center">{state.error}</p>
+      )}
       <button
         type="submit"
         disabled={pending}
-        className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-semibold rounded-lg py-3 transition-colors"
+        className="bg-gray-700 hover:bg-gray-600 active:scale-[0.98] disabled:opacity-50 text-white font-bold rounded-xl py-3.5 text-sm transition-all"
       >
         {pending ? '입장 중...' : '입장하기'}
       </button>

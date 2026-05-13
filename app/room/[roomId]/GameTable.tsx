@@ -21,13 +21,31 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
   const isMyTurn = game !== null && game.pendingSeats[0] === mySeatIndex
   const mySeat = mySeatIndex >= 0 ? game?.seats[mySeatIndex] : null
 
+  const myTotalChips = (mySeat?.chips ?? 0) + (mySeat?.betThisRound ?? 0)
   const callAmount = game && mySeat ? game.currentBet - mySeat.betThisRound : 0
   const minRaiseTotal = game ? game.currentBet + game.minRaise : 0
   const canCheck = game && mySeat ? mySeat.betThisRound >= game.currentBet : false
+  const canRaise = game ? myTotalChips > game.currentBet : false
+
+  // 레이즈 금액 프리셋 계산 (총 베팅액 기준)
+  const quarterTotal = game
+    ? Math.min(myTotalChips, Math.max(minRaiseTotal, game.currentBet + Math.ceil(game.pot * 0.25)))
+    : 0
+  const halfTotal = game
+    ? Math.min(myTotalChips, Math.max(minRaiseTotal, game.currentBet + Math.ceil(game.pot * 0.5)))
+    : 0
+  const potTotal = game
+    ? Math.min(myTotalChips, Math.max(minRaiseTotal, game.currentBet + game.pot))
+    : 0
+  const allInTotal = myTotalChips
+
+  function emitRaise(totalBet: number) {
+    onEmit('player_action', { roomId, action: 'raise', amount: totalBet })
+    setRaiseInput('')
+  }
 
   return (
     <div className="flex-1 flex flex-col gap-4 p-5 overflow-y-auto">
-      {/* 에러 메시지 — game 유무 상관없이 표시 */}
       {error && (
         <div className="bg-red-900/40 border border-red-700 rounded-lg px-4 py-2 text-red-300 text-sm">
           {error}
@@ -35,7 +53,6 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
       )}
 
       {!game ? (
-        /* 대기 화면 */
         <div className="flex-1 flex flex-col items-center justify-center gap-4">
           <p className="text-gray-500">
             {playerCount < 2
@@ -101,79 +118,98 @@ export default function GameTable({ roomId, myId, game, error, playerCount, onEm
           {game.phase !== 'showdown' && isMyTurn && mySeat?.status === 'active' && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-3">
               <p className="text-gray-400 text-sm text-center">내 차례입니다</p>
-              <div className="flex gap-2">
+
+              {/* 주요 액션 버튼 */}
+              <div className="grid grid-cols-3 gap-2">
+                {/* 다이 (fold) */}
                 <button
                   onClick={() => onEmit('player_action', { roomId, action: 'fold' })}
-                  className="flex-1 bg-red-900 hover:bg-red-800 text-red-200 font-semibold rounded-lg py-2.5 transition-colors text-sm"
+                  className="bg-red-900 hover:bg-red-800 text-red-200 font-semibold rounded-lg py-3 transition-colors text-sm"
                 >
-                  폴드
+                  다이
                 </button>
+
+                {/* 삥 (check) or 콜 */}
                 {canCheck ? (
                   <button
                     onClick={() => onEmit('player_action', { roomId, action: 'check' })}
-                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg py-2.5 transition-colors text-sm"
+                    className="bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg py-3 transition-colors text-sm"
                   >
-                    체크
+                    삥
                   </button>
                 ) : (
                   <button
                     onClick={() => onEmit('player_action', { roomId, action: 'call' })}
-                    className="flex-1 bg-blue-700 hover:bg-blue-600 text-white font-semibold rounded-lg py-2.5 transition-colors text-sm"
+                    className="bg-blue-700 hover:bg-blue-600 text-white font-semibold rounded-lg py-3 transition-colors text-sm"
                   >
-                    콜 ({callAmount.toLocaleString()})
+                    <span className="block">콜</span>
+                    <span className="block text-xs text-blue-300">{callAmount.toLocaleString()}</span>
                   </button>
                 )}
+
+                {/* 올인 */}
                 <button
-                  onClick={() => {
-                    const amount = parseInt(raiseInput)
-                    if (!isNaN(amount) && amount >= minRaiseTotal) {
-                      onEmit('player_action', { roomId, action: 'raise', amount })
-                      setRaiseInput('')
-                    }
-                  }}
-                  className="flex-1 bg-yellow-700 hover:bg-yellow-600 text-white font-semibold rounded-lg py-2.5 transition-colors text-sm"
+                  onClick={() => emitRaise(allInTotal)}
+                  disabled={!canRaise}
+                  className="bg-orange-800 hover:bg-orange-700 disabled:opacity-40 text-white font-semibold rounded-lg py-3 transition-colors text-sm"
                 >
-                  레이즈
+                  <span className="block">올인</span>
+                  <span className="block text-xs text-orange-300">{allInTotal.toLocaleString()}</span>
                 </button>
               </div>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="number"
-                  value={raiseInput}
-                  onChange={(e) => setRaiseInput(e.target.value)}
-                  placeholder={`최소 ${minRaiseTotal.toLocaleString()}`}
-                  min={minRaiseTotal}
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-500"
-                />
-                <div className="flex gap-1">
+
+              {/* 레이즈 프리셋 */}
+              {canRaise && (
+                <div className="grid grid-cols-3 gap-2">
                   <button
-                    onClick={() => setRaiseInput(String(minRaiseTotal))}
-                    className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded px-2 py-1"
+                    onClick={() => emitRaise(quarterTotal)}
+                    className="bg-yellow-900 hover:bg-yellow-800 text-yellow-200 font-semibold rounded-lg py-2 transition-colors text-xs"
                   >
-                    Min
+                    <span className="block">쿼터</span>
+                    <span className="block text-yellow-400">{quarterTotal.toLocaleString()}</span>
                   </button>
                   <button
-                    onClick={() => setRaiseInput(String(Math.floor(game.pot / 2)))}
-                    className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded px-2 py-1"
+                    onClick={() => emitRaise(halfTotal)}
+                    className="bg-yellow-900 hover:bg-yellow-800 text-yellow-200 font-semibold rounded-lg py-2 transition-colors text-xs"
                   >
-                    1/2
+                    <span className="block">하프</span>
+                    <span className="block text-yellow-400">{halfTotal.toLocaleString()}</span>
                   </button>
                   <button
-                    onClick={() => setRaiseInput(String(game.pot))}
-                    className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded px-2 py-1"
+                    onClick={() => emitRaise(potTotal)}
+                    className="bg-yellow-900 hover:bg-yellow-800 text-yellow-200 font-semibold rounded-lg py-2 transition-colors text-xs"
                   >
-                    Pot
+                    <span className="block">판돈</span>
+                    <span className="block text-yellow-400">{potTotal.toLocaleString()}</span>
                   </button>
-                  {mySeat && (
-                    <button
-                      onClick={() => setRaiseInput(String(mySeat.chips + mySeat.betThisRound))}
-                      className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded px-2 py-1"
-                    >
-                      All-in
-                    </button>
-                  )}
                 </div>
-              </div>
+              )}
+
+              {/* 직접 입력 레이즈 */}
+              {canRaise && (
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    value={raiseInput}
+                    onChange={(e) => setRaiseInput(e.target.value)}
+                    placeholder={`최소 ${minRaiseTotal.toLocaleString()}`}
+                    min={minRaiseTotal}
+                    max={allInTotal}
+                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-500"
+                  />
+                  <button
+                    onClick={() => {
+                      const amount = parseInt(raiseInput)
+                      if (!isNaN(amount) && amount >= minRaiseTotal && amount <= allInTotal) {
+                        emitRaise(amount)
+                      }
+                    }}
+                    className="bg-yellow-700 hover:bg-yellow-600 text-white font-semibold rounded-lg px-4 py-2 transition-colors text-sm"
+                  >
+                    레이즈
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

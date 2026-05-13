@@ -4,6 +4,8 @@ import { evaluate, compareHands, HandResult } from './evaluator'
 export const SMALL_BLIND = 50
 export const BIG_BLIND = 100
 
+export const VALID_BIG_BLINDS = [50, 100, 200, 500] as const
+
 export type GamePhase = 'pre-flop' | 'flop' | 'turn' | 'river' | 'showdown'
 
 export interface SeatState {
@@ -39,6 +41,7 @@ export interface GameState {
   pendingSeats: number[] // ordered queue — [0] is current actor
   currentBet: number     // amount everyone must match this round
   minRaise: number       // minimum raise size (last raise increment)
+  bigBlind: number
   log: ActionEntry[]
   winners: Winner[] | null
 }
@@ -57,6 +60,7 @@ export interface ClientGameState {
   pendingSeats: number[]
   currentBet: number
   minRaise: number
+  bigBlind: number
   log: ActionEntry[]
   winners: Winner[] | null
 }
@@ -81,9 +85,11 @@ export function sanitizeForPlayer(state: GameState, playerId: string): ClientGam
 export function createGame(
   players: { id: string; chips: number }[],
   dealerIndex: number,
+  bigBlind: number = BIG_BLIND,
 ): GameState {
   if (players.length < 2) throw new Error('최소 2명이 필요합니다')
 
+  const smallBlind = Math.ceil(bigBlind / 2)
   const deck = shuffleDeck(createDeck())
   const n = players.length
 
@@ -107,11 +113,11 @@ export function createGame(
   const sbIndex = n === 2 ? dealerIndex : (dealerIndex + 1) % n
   const bbIndex = n === 2 ? (dealerIndex + 1) % n : (dealerIndex + 2) % n
 
-  placeBet(seats[sbIndex], SMALL_BLIND)
-  log.push({ seatIndex: sbIndex, playerId: seats[sbIndex].playerId, action: 'sb', amount: SMALL_BLIND })
+  placeBet(seats[sbIndex], smallBlind)
+  log.push({ seatIndex: sbIndex, playerId: seats[sbIndex].playerId, action: 'sb', amount: smallBlind })
 
-  placeBet(seats[bbIndex], BIG_BLIND)
-  log.push({ seatIndex: bbIndex, playerId: seats[bbIndex].playerId, action: 'bb', amount: BIG_BLIND })
+  placeBet(seats[bbIndex], bigBlind)
+  log.push({ seatIndex: bbIndex, playerId: seats[bbIndex].playerId, action: 'bb', amount: bigBlind })
 
   // Pre-flop: UTG acts first (dealer+3 for 3+ players, dealer for heads-up)
   const utgIndex = n === 2 ? dealerIndex : (dealerIndex + 3) % n
@@ -122,12 +128,13 @@ export function createGame(
     phase: 'pre-flop',
     seats,
     communityCards: [],
-    pot: SMALL_BLIND + BIG_BLIND,
+    pot: smallBlind + bigBlind,
     deck,
     dealerIndex,
     pendingSeats,
-    currentBet: BIG_BLIND,
-    minRaise: BIG_BLIND,
+    currentBet: bigBlind,
+    minRaise: bigBlind,
+    bigBlind,
     log,
     winners: null,
   }
@@ -316,7 +323,8 @@ function moveToNextPhase(state: GameState): GameState {
     deck,
     pendingSeats,
     currentBet: 0,
-    minRaise: BIG_BLIND,
+    minRaise: state.bigBlind,
+    bigBlind: state.bigBlind,
   }
 }
 
@@ -453,5 +461,5 @@ export function prepareNextHand(
   players: { id: string; chips: number }[],
 ): GameState {
   const nextDealer = (state.dealerIndex + 1) % players.length
-  return createGame(players, nextDealer)
+  return createGame(players, nextDealer, state.bigBlind)
 }

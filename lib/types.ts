@@ -24,6 +24,7 @@ export interface Room {
   maxPlayers: number
   status: RoomStatus
   createdAt: number
+  bigBlind: number
 }
 
 export interface RoomWithPlayers extends Room {

@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getUserId } from '@/lib/session'
 import { store } from '@/lib/store'
-import { createRoom, joinRoomByCode } from '@/app/actions/room'
+import { joinRoomByCode } from '@/app/actions/room'
 import CreateRoomButton from './CreateRoomButton'
 import JoinByCodeForm from './JoinByCodeForm'
 
@@ -25,7 +25,7 @@ export default async function LobbyPage() {
         </div>
 
         <div className="w-full flex flex-col gap-4">
-          <CreateRoomButton action={createRoom} />
+          <CreateRoomButton />
 
           <div className="flex items-center gap-3 text-gray-700">
             <hr className="flex-1 border-gray-800" />

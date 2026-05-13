@@ -11,12 +11,18 @@ function generateRoomCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
-export async function createRoom(): Promise<ActionState> {
+export async function createRoom(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
   const userId = await getUserId()
   if (!userId || !store.getPlayer(userId)) redirect('/')
 
+  const rawBigBlind = parseInt(formData.get('bigBlind') as string, 10)
+  const bigBlind = [50, 100, 200, 500].includes(rawBigBlind) ? rawBigBlind : 100
+
   const roomId = generateRoomCode()
-  store.createRoom(roomId)
+  store.createRoom(roomId, bigBlind)
   const result = store.joinRoom(userId, roomId)
   if (!result.ok) return { error: result.error }
 

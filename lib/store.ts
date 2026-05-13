@@ -49,7 +49,7 @@ class GameStore {
 
   // ── Room ────────────────────────────────────────────────
 
-  createRoom(id: string): Room {
+  createRoom(id: string, bigBlind = 100): Room {
     const room: Room = {
       id,
       name: `방 #${id}`,
@@ -57,6 +57,7 @@ class GameStore {
       maxPlayers: MAX_PLAYERS,
       status: 'waiting',
       createdAt: Date.now(),
+      bigBlind,
     }
     this.rooms.set(id, room)
     return room
@@ -157,7 +158,7 @@ class GameStore {
       return { id, chips: p.chips }
     })
 
-    const game = createGame(players, dealerIndex)
+    const game = createGame(players, dealerIndex, room.bigBlind)
     this.games.set(roomId, game)
     room.status = 'playing'
     return game

@@ -24,19 +24,41 @@ app.prepare().then(() => {
 
   setIO(io)
 
-  // Socket.io 룸 멤버십을 기준으로 각 플레이어에게 격리된 게임 상태 전송
+  // 각 플레이어에게 격리된 게임 상태 전송 (room membership + userId 이중 탐색)
   function broadcastGameState(roomId: string) {
     const game = store.getGame(roomId)
     if (!game) return
 
-    const roomSockets = io.sockets.adapter.rooms.get(roomId)
-    if (!roomSockets) return
+    // userId → socket 맵 구성 (Socket.io 룸 멤버십 기준)
+    const userToSocket = new Map<string, ReturnType<typeof io.sockets.sockets.get>>()
 
-    for (const socketId of roomSockets) {
-      const socket = io.sockets.sockets.get(socketId)
-      if (!socket) continue
-      const userId = socket.handshake.auth.userId as string
-      socket.emit('game_state', sanitizeForPlayer(game, userId))
+    const roomSockets = io.sockets.adapter.rooms.get(roomId)
+    if (roomSockets) {
+      for (const socketId of roomSockets) {
+        const sock = io.sockets.sockets.get(socketId)
+        if (!sock) continue
+        const uid = sock.handshake.auth.userId as string
+        userToSocket.set(uid, sock)
+      }
+    }
+
+    // 폴백: 룸에 없는 플레이어 소켓을 전체 연결에서 탐색 후 룸에 추가
+    const roomPlayers = store.getRoomWithPlayers(roomId)?.players ?? []
+    for (const player of roomPlayers) {
+      if (!userToSocket.has(player.id)) {
+        for (const [, sock] of io.sockets.sockets) {
+          if ((sock.handshake.auth.userId as string) === player.id) {
+            userToSocket.set(player.id, sock)
+            sock.join(roomId)
+            sock.data.roomId = roomId
+            break
+          }
+        }
+      }
+    }
+
+    for (const [userId, sock] of userToSocket) {
+      if (sock) sock.emit('game_state', sanitizeForPlayer(game, userId))
     }
   }
 

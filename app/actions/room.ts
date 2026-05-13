@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { store } from '@/lib/store'
 import { getUserId } from '@/lib/session'
+import { getIO } from '@/lib/socket'
 
 export type ActionState = { error: string } | undefined
 
@@ -40,6 +41,14 @@ export async function joinRoomByCode(
 
   const result = store.joinRoom(userId, code)
   if (!result.ok) return { error: result.error }
+
+  // 이미 방에 있는 플레이어들에게 즉시 알림 (B의 소켓 연결을 기다리지 않음)
+  try {
+    const updatedRoom = store.getRoomWithPlayers(code)
+    if (updatedRoom) getIO().to(code).emit('room_updated', updatedRoom)
+  } catch {
+    // 소켓 서버 미초기화 시 무시
+  }
 
   redirect(`/room/${code}`)
 }
